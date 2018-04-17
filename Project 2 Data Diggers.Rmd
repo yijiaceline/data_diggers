@@ -1,0 +1,101 @@
+---
+title: "6101 Project 2"
+author: "Data Diggers"
+date: "04/12/2017"
+output: html_document
+---
+
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(plyr)
+setwd("/Users/Yijia/Documents/GWU/Master Year 1/6101 Introduction to Data Science/Project2")
+df <- read_csv('adult.csv')
+df$occupation[df$occupation == "?"] = "Prof-specialty"
+df$native.country[df$native.country == "?"] = "United-States"
+df$country_new = 0
+df$country_new[df$native.country == "United-States"] = 1
+df$target = 0
+df$target[df$income == ">50K"] = 1
+df$education_new <- mapvalues(df$education,from=c("1st-4th","5th-6th","7th-8th","9th","10th","11th","12th", "Preschool", "Assoc-acdm","Assoc-voc","Bachelors","Doctorate","HS-grad","Masters","Prof-school","Some-college"), to=c("DROPOUT","DROPOUT","DROPOUT","DROPOUT","DROPOUT","DROPOUT","DROPOUT","DROPOUT","ASSOCIATES","ASSOCIATES","BACHELORS","PHD","HS-GRAD","MASTERS","OTHER","OTHER"))
+df$education_new <- as.factor(df$education_new)
+df$workclass[df$workclass == "?"] = "Private"
+df$workclass_new <- mapvalues(df$workclass,from=c("Federal-gov","Local-gov","State-gov","Private","Self-emp-inc","Self-emp-not-inc","Without-pay", "Never-worked"), to=c("GOV","GOV","GOV","PRIVATE","OTHER","OTHER","OTHER","OTHER"))
+df$workclass_new <- as.factor(df$workclass_new)
+df$marital.status <- as.factor(df$marital.status)
+df$occupation <- as.factor(df$occupation)
+df$relationship <- as.factor(df$relationship)
+df$native.country <- as.factor(df$native.country)
+df$sex <- as.factor(df$sex)
+df$race_new = 0
+df$race_new[df$race == "White"] = 1
+df = select(df, -income, -native.country, -race, -workclass, -education, -fnlwgt)
+df_idx <- sample(nrow(df),nrow(df)*.7)  #multiply the number of rows by 0.7
+df_test <- df[-df_idx,]
+df_train <-df[df_idx,]
+```
+
+
+```{r}
+library(rpart)
+library(DMwR)
+fit <- rpart(target~.,  data= df)
+prettyTree(fit, main = "Regression Tree",cex = 0.6,font = 8, fheight = 0.25, fwidth = 0.3)
+
+
+```
+
+```{r}
+library(randomForest)
+set.seed(2)
+rf2<-randomForest(target~., data=df[,1:14], ntree=50, importance=T)
+varImpPlot(rf2,type=1)
+```
+
+
+```{r}
+#logistic regression
+#try for some variables
+log_reg1 <- glm(target ~ sex + race_new + education_new, family = binomial(link="logit"), data = df_train)
+summary(log_reg1)
+
+log_reg2 <- glm(target ~ sex + race_new + education_new + workclass_new, family = binomial(link="logit"), data = df_train)
+summary(log_reg2)
+#AIC has droped. 
+
+#use all variables
+log_reg <- glm(target ~ ., family=binomial(link="logit"), data = df_train)
+summary(log_reg)
+exp(coef(log_reg))
+y_pred <- predict(log_reg, type=c("response"))
+MSE <- mean((df_test$target-y_pred)^2)
+y_pred
+
+library(pROC)
+h <- roc(target~y_pred, data=df_train)
+plot(h)
+
+library(ResourceSelection)
+hoslem.test(df_train$target, fitted(log_reg))
+library(pscl)
+pR2(log_reg)
+
+#ROC and AUC
+library(ROCR)
+#In order to use the package we first have to set the prediction 
+newpred <- prediction(y_pred,df_train$target)
+#Next we want to measure true possitives which is "tpr" and also False Positives "fpr"
+newpred.performance <- performance(newpred, measure = "tpr",x.measure = "fpr")
+#then we plot these two measures
+plot(newpred.performance,main="ROC Curve for Logistic Regression Model", lwd=2,colorize=TRUE)
+abline(a=0,b=1,lwd=2,lty=2)
+#Looking pretty good, we can also get the AUC again using the performance function
+AUC <- performance(newpred, measure = "auc")
+AUC = unlist(AUC@y.values)
+AUC
+```
+
